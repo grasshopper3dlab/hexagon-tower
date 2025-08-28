@@ -3,124 +3,338 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Day-4 Hexagon Builder</title>
+<title>Day-4 Hexagon Builder + Tower Animator</title>
 <style>
-  :root { --fg: #0b0f14; --muted: #6b7280; --border: #e5e7eb; }
-  html, body { height: 100%; background: #fff; color: var(--fg); }
-  body { margin: 0; font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif; }
-  .wrap { max-width: 1200px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
-  h1 { margin: 0; font-size: clamp(18px, 3vw, 24px); }
-  p { margin: 0; color: var(--muted); }
-  .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  input[type=number] { width: 160px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; font: inherit; }
-  button { cursor: pointer; border: 1px solid var(--border); background: #fff; border-radius: 10px; padding: 8px 12px; font-weight: 700; }
-  .canvasWrap { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: #fff; }
-  svg { width: 100%; height: auto; display: block; background: #fff; }
-  .hint { color: var(--muted); font-size: 12px; }
+  :root { --fg:#0b0f14; --muted:#6b7280; --border:#e5e7eb; }
+  html, body { height:100%; background:#fff; color:var(--fg); }
+  body { margin:0; font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  h1 { margin:0; font-size: clamp(18px,3vw,24px); }
+  h2 { margin:8px 0 0; font-size: clamp(16px,2.6vw,20px); }
+  p { margin:0; color:var(--muted); }
+  .controls, .tower-controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  label { font-weight:600; }
+  input[type=number] { width: 160px; padding:8px 10px; border:1px solid var(--border); border-radius:10px; font:inherit; }
+  button { cursor:pointer; border:1px solid var(--border); background:#fff; border-radius:10px; padding:8px 12px; font-weight:700; }
+  button:active{ transform: translateY(1px); }
+  .canvasWrap { border:1px solid var(--border); border-radius:12px; overflow:hidden; background:#fff; }
+  svg { width:100%; height:auto; display:block; background:#fff; }
+  .hint { color:var(--muted); font-size:12px; }
+
+  /* Order chips */
+  .order-chip { cursor:pointer; stroke:#000; stroke-width:1.5; }
+  .order-text { font-size:16px; font-weight:700; fill:#fff; pointer-events:none; text-shadow:0 1px 1px rgba(0,0,0,.35); }
+  .badge { display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid var(--border); border-radius:999px; font-size:12px; color:var(--muted); }
 </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Hexagons</h1>
-    <p>Enter your available stick length, click calculate, and build your five hexagons. Displayed side by side with larger scale.</p>
+    <h1>Day-4 Hexagon Builder</h1>
+    <p>Enter your available stick length, click calculate, and build your five hexagons. Start with the largest and work your way down.</p>
+
+    <!-- ===== TOP: Day-4 App ===== -->
     <div class="controls">
-      <label for="avail"><strong>Available stick length (cm or inches)</strong></label>
+      <label for="avail">Available stick length (cm or inches)</label>
       <input id="avail" type="number" step="0.1" min="1" placeholder="e.g., 18" value="20" />
       <button id="calc">Calculate Hexagons</button>
       <button id="download">Download PNG</button>
-      <span class="hint">Works with cm or inches — the drawing is proportional.</span>
+      <span class="hint">Works with cm or inches — drawing is proportional.</span>
     </div>
+
     <div class="canvasWrap">
-      <svg id="hexsvg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 400" aria-label="Hexagon plan preview"></svg>
+      <svg id="hexsvg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 420" aria-label="Hexagon plan preview"></svg>
+    </div>
+
+    <!-- ===== Tower Animator ===== -->
+    <h2>Hexagon Tower Animator</h2>
+    <p>Tap the colored number on each hexagon (above) to set its <em>stack order</em> (1 = bottom → 5 = top). Then set spacing and twist, and press Play.</p>
+    <div class="tower-controls">
+      <span class="badge" id="orderStatus">Order: unassigned</span>
+      <label for="spacing">Layer distance (px)</label>
+      <input id="spacing" type="number" step="1" min="10" value="80" />
+      <label for="shift">Twist shift (0–5)</label>
+      <input id="shift" type="number" step="1" min="0" max="5" value="1" />
+      <button id="play">Play</button>
+      <button id="reset">Reset</button>
+      <button id="clearOrder">Clear Order</button>
+    </div>
+
+    <div class="canvasWrap">
+      <svg id="towersvg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" aria-label="Tower animation"></svg>
     </div>
   </div>
+
 <script>
 (function(){
+  'use strict';
+  // ===== Shared / Builder Section =====
   const BASE_EDGES = [20,17,15,12,10];
   const SVG_MARGIN = 20;
   const GAP = 30;
-  const svg=document.getElementById('hexsvg');
-  const input=document.getElementById('avail');
-  const btnCalc=document.getElementById('calc');
-  const btnDL=document.getElementById('download');
-  const r1 = x => (Math.round(x*10)/10).toFixed(1);
+  const r1 = (x)=> (Math.round(x*10)/10).toFixed(1);
+
+  const hexSVG = document.getElementById('hexsvg');
+  const towerSVG = document.getElementById('towersvg');
+  const inputAvail = document.getElementById('avail');
+  const btnCalc = document.getElementById('calc');
+  const btnDL = document.getElementById('download');
+
+  const badgeOrder = document.getElementById('orderStatus');
+  const inputSpacing = document.getElementById('spacing');
+  const inputShift = document.getElementById('shift');
+  const btnPlay = document.getElementById('play');
+  const btnReset = document.getElementById('reset');
+  const btnClearOrder = document.getElementById('clearOrder');
+
   function computeScaled(avail){
     const maxBase = Math.max(...BASE_EDGES);
-    const factor = avail / maxBase;
+    const factor = avail / maxBase; // largest edge becomes 'avail'
     return BASE_EDGES.map(v => +r1(v*factor));
   }
   function hexPoints(cx, cy, s){
-    const pts=[];
+    const pts=[]; // flat-top hexagon
     for(let k=0;k<6;k++){
-      const a=(Math.PI/3)*k;
+      const a=(Math.PI/3)*k; // 0,60,120,...
       pts.push([cx+s*Math.cos(a), cy+s*Math.sin(a)]);
     }
     return pts;
   }
-  function drawSVG(scaled){
-    while(svg.firstChild) svg.removeChild(svg.firstChild);
-    const viewW = 1400;
+
+  // Order selection state
+  let orderSlots = [null,null,null,null,null]; // slot -> hex index
+  function assignedSlotForHex(idx){ const s = orderSlots.indexOf(idx); return s===-1? 0 : (s+1); }
+  function orderSummary(){ const filled = orderSlots.filter(v=>v!==null).length; return filled===0 ? 'Order: unassigned' : `Order: ${orderSlots.map(v=> v===null?'•':(v+1)).join(' → ')}`; }
+  function clearOrder(){ orderSlots=[null,null,null,null,null]; updateOrderBadge(); drawHexLayout(lastScaled); drawTower(0); }
+  function updateOrderBadge(){ badgeOrder.textContent = orderSummary(); }
+
+  // Draw the side-by-side hexagons with clickable order chips
+  let lastScaled = computeScaled(parseFloat(inputAvail.value)||20);
+  function drawHexLayout(scaled){
+    lastScaled = scaled;
+    while(hexSVG.firstChild) hexSVG.removeChild(hexSVG.firstChild);
+
+    const viewW = 1400, viewH=420;
     const sMax = Math.max(...scaled);
-    const pxPerUnit = (viewW - 2*SVG_MARGIN - (scaled.length-1)*GAP) / (scaled.length*2*sMax) * 1.2; // scale up 20%
-    svg.setAttribute('viewBox', `0 0 ${viewW} 400`);
+    const pxPerUnit = (viewW - 2*SVG_MARGIN - (scaled.length-1)*GAP) / (scaled.length*2*sMax) * 1.2;
+    hexSVG.setAttribute('viewBox', `0 0 ${viewW} ${viewH}`);
     const centerY = 200;
     let offsetX = SVG_MARGIN;
+
     for(let i=0;i<scaled.length;i++){
-      const s = scaled[i];
-      const sidePx = s * pxPerUnit;
-      const pts = hexPoints(offsetX+sidePx, centerY, sidePx)
-        .map(([x,y]) => `${r1(x)},${r1(y)}`).join(' ');
-      const poly=document.createElementNS('http://www.w3.org/2000/svg','polygon');
+      const s = scaled[i], sidePx = s * pxPerUnit;
+      const cx = offsetX + sidePx, cy = centerY;
+      const pts = hexPoints(cx, cy, sidePx).map(([x,y])=> `${r1(x)},${r1(y)}`).join(' ');
+
+      const poly = document.createElementNS('http://www.w3.org/2000/svg','polygon');
       poly.setAttribute('points', pts);
       poly.setAttribute('fill','none');
       poly.setAttribute('stroke','#000');
       poly.setAttribute('stroke-width','2');
-      svg.appendChild(poly);
-      const label=document.createElementNS('http://www.w3.org/2000/svg','text');
-      label.setAttribute('x', offsetX+sidePx);
-      label.setAttribute('y', centerY+sidePx+30);
-      label.setAttribute('fill','#9ca3af');
-      label.setAttribute('font-size','14');
-      label.setAttribute('text-anchor','middle');
+      hexSVG.appendChild(poly);
+
+      const label = document.createElementNS('http://www.w3.org/2000/svg','text');
+      label.setAttribute('x', cx); label.setAttribute('y', cy + sidePx + 30);
+      label.setAttribute('fill','#9ca3af'); label.setAttribute('font-size','14'); label.setAttribute('text-anchor','middle');
       label.textContent = `${r1(s)}`;
-      svg.appendChild(label);
+      hexSVG.appendChild(label);
+
+      // Order chip (click to assign/unassign)
+      const chipR = 20; // bigger, easier to tap
+      const chip = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      chip.setAttribute('cx', cx); chip.setAttribute('cy', cy); chip.setAttribute('r', chipR);
+      chip.setAttribute('class','order-chip');
+      const palette = ['#ff6b6b','#f7b801','#6BCB77','#4D96FF','#9B5DE5'];
+      chip.setAttribute('fill', palette[i % palette.length]);
+      chip.setAttribute('stroke', '#000');
+      chip.setAttribute('stroke-width', '1.5');
+      chip.addEventListener('click', ()=>{
+        const cur = assignedSlotForHex(i); // 0 if none, else 1..5
+        if(cur===0){
+          const idx = orderSlots.indexOf(null);
+          if(idx!==-1) orderSlots[idx]=i;
+        } else {
+          orderSlots[cur-1] = null;
+        }
+        updateOrderBadge();
+        drawHexLayout(lastScaled);
+        drawTower(0); // refresh at t=0 so connectors are hidden until Play
+      });
+      hexSVG.appendChild(chip);
+
+      const chipTxt = document.createElementNS('http://www.w3.org/2000/svg','text');
+      chipTxt.setAttribute('x', cx); chipTxt.setAttribute('y', cy+5);
+      chipTxt.setAttribute('class','order-text');
+      chipTxt.setAttribute('text-anchor','middle');
+      const slotNum = assignedSlotForHex(i);
+      chipTxt.textContent = slotNum>0 ? slotNum : '+';
+      hexSVG.appendChild(chipTxt);
+
       offsetX += sidePx*2 + GAP;
     }
   }
+
+  // Download PNG (top preview)
   function downloadPNG(){
     const serializer=new XMLSerializer();
-    const svgString=serializer.serializeToString(svg);
+    const svgString=serializer.serializeToString(hexSVG);
     const svgBlob=new Blob([svgString],{type:'image/svg+xml;charset=utf-8'});
     const url=URL.createObjectURL(svgBlob);
     const img=new Image();
     img.onload=function(){
-      const vb=svg.viewBox.baseVal;
-      const scale=2;
+      const vb=hexSVG.viewBox.baseVal; const scale=2;
       const canvas=document.createElement('canvas');
-      canvas.width=Math.ceil(vb.width*scale);
-      canvas.height=Math.ceil(vb.height*scale);
+      canvas.width=Math.ceil(vb.width*scale); canvas.height=Math.ceil(vb.height*scale);
       const ctx=canvas.getContext('2d');
-      ctx.fillStyle='#fff';
-      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle='#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
       ctx.drawImage(img,0,0,canvas.width,canvas.height);
       const ts=new Date().toISOString().replace(/[:.]/g,'-');
-      const a=document.createElement('a');
-      a.download=`hexagon-plan_${ts}.png`;
-      a.href=canvas.toDataURL('image/png');
-      a.click();
+      const a=document.createElement('a'); a.download=`hexagon-plan_${ts}.png`; a.href=canvas.toDataURL('image/png'); a.click();
       URL.revokeObjectURL(url);
     };
     img.src=url;
   }
+
+  // ===== Tower Animation (3D) =====
+  // Perspective camera and projection
+  const cam = { yaw: 0.7, pitch: -0.35, dist: 900, fov: 60 * Math.PI/180 };
+  function camPos(){
+    const cp=Math.cos(cam.pitch), sp=Math.sin(cam.pitch);
+    const cy=Math.cos(cam.yaw), sy=Math.sin(cam.yaw);
+    return { x: cam.dist*cy*cp, y: cam.dist*sp, z: cam.dist*sy*cp };
+  }
+  function dot3(a,b){ return a.x*b.x + a.y*b.y + a.z*b.z; }
+  function cross3(a,b){ return { x:a.y*b.z-a.z*b.y, y:a.z*b.x-a.x*b.z, z:a.x*b.y-a.y*b.x }; }
+  function len3(a){ return Math.hypot(a.x,a.y,a.z); }
+  function norm3(a){ const L=len3(a)||1; return {x:a.x/L,y:a.y/L,z:a.z/L}; }
+  function project3D(pt, viewW, viewH){
+    const eye = camPos(), target = {x:0,y:0,z:0};
+    const zdir = norm3({x:target.x-eye.x, y:target.y-eye.y, z:target.z-eye.z});
+    const xdir = norm3(cross3(zdir, {x:0,y:1,z:0}));
+    const ydir = cross3(xdir, zdir);
+    const rel = {x: pt.x - eye.x, y: pt.y - eye.y, z: pt.z - eye.z};
+    const px = dot3(rel, xdir), py = dot3(rel, ydir), pz = dot3(rel, zdir);
+    const f = 1/Math.tan(cam.fov/2), aspect = viewW/viewH;
+    return { x: viewW*(0.5 + 0.5*(f*px/(aspect*pz))), y: viewH*(0.5 - 0.5*(f*py/pz)), z: pz };
+  }
+
+  // Build tower geometry and draw (snap to Z; dashed connectors animate only)
+  let animReq=null, animStart=0;
+  function drawTower(t=0){
+    while(towerSVG.firstChild) towerSVG.removeChild(towerSVG.firstChild);
+
+    const spacing = Math.max(0, +inputSpacing.value||0); // world units
+    const shift = Math.max(0, Math.min(5, Math.floor(+inputShift.value||0)));
+    const viewW=1200, viewH=700; towerSVG.setAttribute('viewBox',`0 0 ${viewW} ${viewH}`);
+
+    const assignedAll = orderSlots.map((hexIdx, slot)=> ({slot, hexIdx}));
+    const assigned = assignedAll.filter(o=>o.hexIdx!==null);
+    if(assigned.length===0){
+      const txt=document.createElementNS('http://www.w3.org/2000/svg','text');
+      txt.setAttribute('x', viewW/2); txt.setAttribute('y', viewH/2);
+      txt.setAttribute('fill','#9ca3af'); txt.setAttribute('text-anchor','middle'); txt.setAttribute('font-size','16');
+      txt.textContent='Assign an order above to preview the tower (3D).';
+      towerSVG.appendChild(txt); return;
+    }
+
+    const sMax = Math.max(...lastScaled);
+    const unit = 180 / sMax; // largest hex radius ≈ 180 world units
+
+    // Place layers immediately at their final Z
+    const layers = assigned.map(({slot,hexIdx})=>{
+      const s = lastScaled[hexIdx] * unit; // hex radius
+      const z = slot * spacing;            // height
+      return {slot, hexIdx, s, z};
+    });
+
+    const polys=[]; const conns=[];
+    for(let i=0;i<layers.length;i++){
+      const {s,z} = layers[i];
+      const ring=[]; for(let k=0;k<6;k++){ const a=(Math.PI/3)*k; ring.push({x: s*Math.cos(a), y: s*Math.sin(a), z}); }
+      const proj = ring.map(p=> project3D(p, viewW, viewH));
+      const depth = proj.reduce((acc,p)=>acc+p.z,0)/proj.length;
+      polys.push({proj, depth});
+
+      if(i<layers.length-1){
+        const {s: s2, z: z2} = layers[i+1];
+        const ring2=[]; for(let k=0;k<6;k++){ const a=(Math.PI/3)*k; ring2.push({x: s2*Math.cos(a), y: s2*Math.sin(a), z:z2}); }
+        for(let j=0;j<6;j++){
+          const p = project3D(ring[j], viewW, viewH);
+          const q = project3D(ring2[(j+shift)%6], viewW, viewH);
+          conns.push({p,q, depth:(p.z+q.z)/2});
+        }
+      }
+    }
+
+    // Draw connectors: many small dashes; reveal by phase shifting
+    conns.sort((a,b)=>b.depth-a.depth);
+    const reveal = Math.max(0, Math.min(1, t));
+    for(const c of conns){
+      const seg = document.createElementNS('http://www.w3.org/2000/svg','line');
+      seg.setAttribute('x1', c.p.x.toFixed(1)); seg.setAttribute('y1', c.p.y.toFixed(1));
+      seg.setAttribute('x2', c.q.x.toFixed(1)); seg.setAttribute('y2', c.q.y.toFixed(1));
+      seg.setAttribute('stroke','#000'); seg.setAttribute('stroke-width','1');
+      const L = Math.hypot(c.q.x-c.p.x, c.q.y-c.p.y);
+      const dash = Math.max(2, Math.floor(L/20)); // more, smaller dashes
+      seg.setAttribute('stroke-dasharray', `${dash},${dash}`);
+      seg.setAttribute('stroke-dashoffset', (1-reveal)*dash);
+      towerSVG.appendChild(seg);
+    }
+
+    // Draw polygons back→front
+    polys.sort((a,b)=>b.depth-a.depth);
+    for(const poly of polys){
+      const pts = poly.proj.map(p=> `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+      const pg = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+      pg.setAttribute('points', pts); pg.setAttribute('fill','rgba(0,0,0,0.04)'); pg.setAttribute('stroke','#000'); pg.setAttribute('stroke-width','1.5');
+      towerSVG.appendChild(pg);
+    }
+  }
+
+  // Easing (kept for future, not used in current dash-only animation)
+  function easeInOut(x){ return x<0.5 ? 2*x*x : 1 - Math.pow(-2*x+2,2)/2; }
+
+  function play(){
+    cancelAnimationFrame(animReq); animStart=performance.now();
+    const DUR = 3000; // connectors reveal only
+    const tick = (now)=>{
+      const t = Math.min(1, (now-animStart)/DUR);
+      drawTower(t); // only reveal dashes; layers already at final Z
+      if(t<1) animReq=requestAnimationFrame(tick);
+    };
+    animReq=requestAnimationFrame(tick);
+  }
+  function reset(){ cancelAnimationFrame(animReq); drawTower(0); }
+
+  // Orbit controls for 3D preview
+  (function enableOrbit(){
+    let dragging=false, lx=0, ly=0;
+    towerSVG.addEventListener('mousedown',e=>{dragging=true; lx=e.clientX; ly=e.clientY;});
+    window.addEventListener('mouseup',()=>dragging=false);
+    window.addEventListener('mousemove',e=>{
+      if(!dragging) return;
+      const dx=(e.clientX-lx)/200, dy=(e.clientY-ly)/200; lx=e.clientX; ly=e.clientY;
+      cam.yaw += dx; cam.pitch = Math.max(-1.2, Math.min(1.2, cam.pitch+dy));
+      drawTower(1); // keep dashes visible while orbiting
+    });
+    towerSVG.addEventListener('wheel',e=>{ e.preventDefault(); cam.dist = Math.max(200, Math.min(2000, cam.dist*(1+Math.sign(e.deltaY)*0.1))); drawTower(1); }, {passive:false});
+  })();
+
+  // Wiring (top)
   function recalc(){
-    const val=parseFloat(input.value);
-    const avail=isFinite(val)&&val>0?val:20;
-    const scaled=computeScaled(avail);
-    drawSVG(scaled);
+    const val=parseFloat(inputAvail.value); const avail = isFinite(val)&&val>0?val:20;
+    const scaled=computeScaled(avail); drawHexLayout(scaled); drawTower(0);
   }
   btnCalc.addEventListener('click', recalc);
   btnDL.addEventListener('click', downloadPNG);
   window.addEventListener('resize', recalc);
+
+  // Wiring (tower)
+  btnPlay.addEventListener('click', play);
+  btnReset.addEventListener('click', reset);
+  btnClearOrder.addEventListener('click', ()=>{ clearOrder(); drawTower(0); });
+  updateOrderBadge();
+
+  // First render
   recalc();
 })();
 </script>
