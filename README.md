@@ -1,4 +1,4 @@
-# Day-4 Hexagon Builder + Tower Animator
+# Day-5 Hexagon Builder + Tower Animator
 
 A **single-file web app** (`index.html`) for Day-4 of the design challenge.  
 No dependencies. Works offline and on GitHub Pages.
